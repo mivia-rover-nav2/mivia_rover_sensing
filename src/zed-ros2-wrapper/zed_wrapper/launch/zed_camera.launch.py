@@ -277,12 +277,6 @@ def launch_setup(context, *args, **kwargs):
     if( ros_params_override_path_val != ''):
         node_parameters.append(ros_params_override_path)
 
-    # Additional parameters from launch arguments
-    custom_onnx_file_path = os.path.join(
-        get_package_share_directory('zed_wrapper'),
-        'models',
-        'yolo12n.onnx'
-    )
     node_parameters.append( 
             # Launch arguments must override the YAML files values
             {
@@ -303,8 +297,7 @@ def launch_setup(context, *args, **kwargs):
                 'sensors.publish_imu_tf': publish_imu_tf,
                 'gnss_fusion.gnss_fusion_enabled': enable_gnss,
                 'general.virtual_serial_numbers': serial_numbers_val,
-                'general.virtual_camera_ids': camera_ids_val,
-                'object_detection.custom_onnx_file': custom_onnx_file_path
+                'general.virtual_camera_ids': camera_ids_val
             }
     )
 

@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 import os
 import glob
 
-package_name = 'mivia_rover_sensing'
+package_name = 'mivia_rover_sensing_bringup'
 
 setup(
     name=package_name,
@@ -12,7 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
-        (os.path.join('share', package_name, 'launch'), glob.glob('launch/*.launch.py')),
+        (os.path.join('share', package_name, 'launch'), glob.glob('launch/*.launch.*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

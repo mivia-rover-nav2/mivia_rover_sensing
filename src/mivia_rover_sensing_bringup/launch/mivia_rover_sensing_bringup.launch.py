@@ -7,15 +7,16 @@ import os
 
 def generate_launch_description():
 
+    zed_launch_file_path = os.path.join(
+        get_package_share_directory('zed_wrapper'),
+        'launch',
+        'zed2_camera.launch.py'
+    )
     zed_wrapper = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(
-                get_package_share_directory('zed_wrapper'),
-                'launch',
-                'zed2_camera.launch.py'
+            zed_launch_file_path
             )
         )
-    )
 
     return LaunchDescription([
         zed_wrapper

@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<launch>
-    <!-- Launch ZED 2 camera -->
-    <include file="$(find-pkg-share zed_wrapper)/launch/zed2_camera.launch.py"/>
-</launch>

@@ -17,7 +17,20 @@ def generate_launch_description():
             zed_launch_file_path
             )
         )
+    
+    dwm1001_launch_file_path = os.path.join(
+        get_package_share_directory('dwm1001_launch'),
+        'launch',
+        'les_mode_tag.launch.py'
+    )
+
+    dwm1001_wrapper = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            dwm1001_launch_file_path
+            )
+    )
 
     return LaunchDescription([
-        zed_wrapper
+        zed_wrapper,
+        dwm1001_wrapper
     ])

@@ -20,16 +20,16 @@
             replay_rate: 1.0 # Replay rate for the SVO when not used in realtime mode (between [0.10-5.0])
 
         general:
-            camera_timeout_sec: 5
-            camera_max_reconnect: 5
+            camera_timeout_sec: 0
+            camera_max_reconnect: 1000
             camera_flip: false
             self_calib: true # Enable the self-calibration process at camera opening. See https://www.stereolabs.com/docs/api/structsl_1_1InitParameters.html#affeaa06cfc1d849e311e484ceb8edcc5
             serial_number: 0 # overwritten by launch file
             pub_resolution: 'NATIVE' # The resolution used for image and depth map publishing. 'NATIVE' to use the same `general.grab_resolution` - `CUSTOM` to apply the `general.pub_downscale_factor` downscale factory to reduce bandwidth in transmission
             pub_downscale_factor: 2.0 # rescale factor used to rescale image before publishing when 'pub_resolution' is 'CUSTOM'
-            pub_frame_rate: 30.0 # [DYNAMIC] Frequency of publishing of visual images and depth data (not the Point Cloud, see 'depth.point_cloud_freq'). This value must be equal or less than the camera framerate.
+            pub_frame_rate: 15.0 # [DYNAMIC] Frequency of publishing of visual images and depth data (not the Point Cloud, see 'depth.point_cloud_freq'). This value must be equal or less than the camera framerate.
             enable_image_validity_check: 1 # [SDK5 required] Sets the image validity check. If set to 1, the SDK will check if the frames are valid before processing.
-            gpu_id: -1
+            gpu_id: 0
             optional_opencv_calibration_file: '' # Optional path where the ZED SDK can find a file containing the calibration information of the camera computed by OpenCV. Read the ZED SDK documentation for more information: https://www.stereolabs.com/docs/api/structsl_1_1InitParameters.html#a9eab2753374ef3baec1d31960859ba19
             async_image_retrieval: false # If set to true will camera image retrieve at a framerate different from \ref grab() application framerate. This is useful for recording SVO or sending camera stream at different rate than application.
             publish_status: true # Advertise the status topics that are published only if a node subscribes to them
@@ -81,7 +81,7 @@
             publish_roi_mask: false # Advertise the ROI mask image topic that is published only if a node subscribes to it
 
         depth:
-            depth_mode: 'NEURAL' # Matches the ZED SDK setting: 'NONE', 'PERFORMANCE', 'QUALITY', 'ULTRA', 'NEURAL', 'NEURAL_PLUS' - Note: if 'NONE' all the modules that requires depth extraction are disabled by default (Pos. Tracking, Obj. Detection, Mapping, ...)
+            depth_mode: 'NEURAL_LIGHT' # Matches the ZED SDK setting: 'NONE', 'PERFORMANCE', 'QUALITY', 'ULTRA', 'NEURAL', 'NEURAL_PLUS' - Note: if 'NONE' all the modules that requires depth extraction are disabled by default (Pos. Tracking, Obj. Detection, Mapping, ...)
             depth_stabilization: 30 # Forces positional tracking to start if major than 0 - Range: [0,100]
             openni_depth_mode: false # 'false': 32bit float [meters], 'true': 16bit unsigned int [millimeters]
             point_cloud_freq: 10.0 # [DYNAMIC] Frequency of the pointcloud publishing. This value must be equal or less than the camera framerate.
@@ -91,7 +91,7 @@
             remove_saturated_areas: true # [DYNAMIC]
             publish_depth_map: true # Advertise the depth map topics that are published only if a node subscribes to them
             publish_depth_info: false # Advertise the depth info topic that is published only if a node subscribes to it
-            publish_point_cloud: true # Advertise the point cloud topic that is published only if a node subscribes to it
+            publish_point_cloud: false # Advertise the point cloud topic that is published only if a node subscribes to it
             publish_depth_confidence: false # Advertise the depth confidence topic that is published only if a node subscribes to it
             publish_disparity: false # Advertise the disparity topic that is published only if a node subscribes to it
             # Other parameters are defined, according to the camera model, in the 'zed.yaml', 'zedm.yaml', 'zed2.yaml', 'zed2i.yaml'

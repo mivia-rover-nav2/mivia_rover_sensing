@@ -2265,14 +2265,14 @@ void ZedCamera::publishDepthMapWithInfo(sl::Mat & depth, rclcpp::Time t)
 {
   mLeftCamInfoMsg->header.stamp = mUsePubTimestamps ? get_clock()->now() : t;
 
-  sl::float1 * depthDataPtr = depth.getPtr<sl::float1>();
-  size_t dataSize = depth.getHeight() * depth.getWidth();
-  for (size_t i = 0; i < dataSize; ++i) {
-    float &d = depthDataPtr[i];
-    if (std::isnan(d) || std::isinf(d)) {
-      d = mZed->getInitParameters().depth_maximum_distance;
-    }
-  }
+  // sl::float1 * depthDataPtr = depth.getPtr<sl::float1>();
+  // size_t dataSize = depth.getHeight() * depth.getWidth();
+  // for (size_t i = 0; i < dataSize; ++i) {
+  //   float &d = depthDataPtr[i];
+  //   if (std::isnan(d) || std::isinf(d)) {
+  //     d = mZed->getInitParameters().depth_maximum_distance;
+  //   }
+  // }
 
   if (_nitrosDisabled) {
     if (!mOpenniDepthMode) {

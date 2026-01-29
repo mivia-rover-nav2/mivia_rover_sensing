@@ -13,9 +13,11 @@ def generate_launch_description():
         'zed2_camera.launch.py'
     )
     zed_wrapper = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            zed_launch_file_path
-            )
+        PythonLaunchDescriptionSource(zed_launch_file_path),
+        launch_arguments={
+            'publish_tf': 'false',
+            'publish_map_tf': 'false'
+        }.items()
         )
     
     dwm1001_launch_file_path = os.path.join(

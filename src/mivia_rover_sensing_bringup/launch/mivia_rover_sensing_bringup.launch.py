@@ -16,7 +16,10 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(zed_launch_file_path),
         launch_arguments={
             'publish_tf': 'false',
-            'publish_map_tf': 'false'
+            'publish_map_tf': 'false',
+            'publish_cam_imu_transf':'true',
+            'publish_imu_raw':'true',
+            'publish_imu_tf':'true'
         }.items()
         )
     

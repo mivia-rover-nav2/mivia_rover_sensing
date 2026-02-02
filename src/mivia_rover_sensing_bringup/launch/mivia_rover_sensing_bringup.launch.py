@@ -19,7 +19,8 @@ def generate_launch_description():
             'publish_map_tf': 'false',
             'publish_cam_imu_transf':'true',
             'publish_imu_raw':'true',
-            'publish_imu_tf':'true'
+            'publish_imu_tf':'true',
+            'publish_mag':'true'
         }.items()
         )
     

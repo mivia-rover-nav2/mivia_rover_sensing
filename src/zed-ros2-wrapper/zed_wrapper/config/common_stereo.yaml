@@ -20,7 +20,7 @@
             replay_rate: 1.0 # Replay rate for the SVO when not used in realtime mode (between [0.10-5.0])
 
         general:
-            camera_timeout_sec: 0
+            camera_timeout_sec: 1000
             camera_max_reconnect: 1000
             camera_flip: false
             self_calib: true # Enable the self-calibration process at camera opening. See https://www.stereolabs.com/docs/api/structsl_1_1InitParameters.html#affeaa06cfc1d849e311e484ceb8edcc5
@@ -91,7 +91,7 @@
             remove_saturated_areas: true # [DYNAMIC]
             publish_depth_map: true # Advertise the depth map topics that are published only if a node subscribes to them
             publish_depth_info: false # Advertise the depth info topic that is published only if a node subscribes to it
-            publish_point_cloud: false # Advertise the point cloud topic that is published only if a node subscribes to it
+            publish_point_cloud: true # Advertise the point cloud topic that is published only if a node subscribes to it
             publish_depth_confidence: false # Advertise the depth confidence topic that is published only if a node subscribes to it
             publish_disparity: false # Advertise the disparity topic that is published only if a node subscribes to it
             # Other parameters are defined, according to the camera model, in the 'zed.yaml', 'zedm.yaml', 'zed2.yaml', 'zed2i.yaml'

@@ -20,8 +20,8 @@
             replay_rate: 1.0 # Replay rate for the SVO when not used in realtime mode (between [0.10-5.0])
 
         general:
-            camera_timeout_sec: 1000
-            camera_max_reconnect: 1000
+            camera_timeout_sec: 1 # [DEPRECATED] This value will not be taken into account since we want the node to start as soon as the ZED is connected.
+            camera_max_reconnect: 10 # [DEPRECATED] For the same reason as camera_timeout_sec. The node will try to reconnect to the camera indefinitely.
             camera_flip: false
             self_calib: true # Enable the self-calibration process at camera opening. See https://www.stereolabs.com/docs/api/structsl_1_1InitParameters.html#affeaa06cfc1d849e311e484ceb8edcc5
             serial_number: 0 # overwritten by launch file

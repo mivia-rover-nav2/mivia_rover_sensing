@@ -2668,10 +2668,10 @@ bool ZedCamera::startCamera()
       return false;
     }
 
-    if (connectTimer.toc() > mMaxReconnectTemp * mCamTimeoutSec) {
-      RCLCPP_ERROR(get_logger(), "Camera detection timeout");
-      return false;
-    }
+    // if (connectTimer.toc() > mMaxReconnectTemp * mCamTimeoutSec) {
+    //   RCLCPP_ERROR(get_logger(), "Camera detection timeout");
+    //   return false;
+    // }
 
     mDiagUpdater.force_update();
 

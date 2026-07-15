@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(dwm1001_msg REQUIRED)
 
 add_executable(dummy_active_tag src/dummy_active_tag_node.cpp)
 target_compile_features(dummy_active_tag PUBLIC cxx_std_17)
@@ -18,7 +19,24 @@ add_executable(dummy_passive_tag src/dummy_passive_tag_node.cpp)
 target_compile_features(dummy_passive_tag PUBLIC cxx_std_17)
 ament_target_dependencies(dummy_passive_tag rclcpp rcl_interfaces geometry_msgs)
 
-install(TARGETS dummy_active_tag dummy_passive_tag
+# Shared serial/shell primitives, reused by the nodes that talk to the
+# DWM1001 firmware over UART (les_mode_tag now, ranging_tag/active_tag/
+# passive_tag in later phases).
+add_library(dwm1001_serial STATIC
+  src/serial_port.cpp
+  src/dwm1001_shell.cpp
+)
+target_compile_features(dwm1001_serial PUBLIC cxx_std_17)
+target_include_directories(dwm1001_serial PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+)
+
+add_executable(les_mode_tag src/les_mode_tag_node.cpp)
+target_compile_features(les_mode_tag PUBLIC cxx_std_17)
+target_link_libraries(les_mode_tag dwm1001_serial)
+ament_target_dependencies(les_mode_tag rclcpp rcl_interfaces geometry_msgs dwm1001_msg)
+
+install(TARGETS dummy_active_tag dummy_passive_tag les_mode_tag
   DESTINATION lib/${PROJECT_NAME}
 )
 

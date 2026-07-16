@@ -29,12 +29,17 @@ void Dwm1001Shell::sendCommand(const std::string & cmd, double delay_seconds)
 {
   serial_.write(cmd);
   serial_.write("\r");
+  // Mirror of pyserial's ser.flush() in the Python driver: wait for the
+  // bytes to actually leave the port before starting the fixed delay,
+  // rather than just having handed them to the kernel's write buffer.
+  serial_.drain();
   std::this_thread::sleep_for(std::chrono::duration<double>(delay_seconds));
 }
 
 void Dwm1001Shell::enterShellMode(double delay_seconds)
 {
   serial_.write("\r\r");
+  serial_.drain();
   std::this_thread::sleep_for(std::chrono::duration<double>(delay_seconds));
   serial_.flushInput();
 }

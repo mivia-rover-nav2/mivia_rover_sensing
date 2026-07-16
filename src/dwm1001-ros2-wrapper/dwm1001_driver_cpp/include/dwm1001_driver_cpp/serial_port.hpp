@@ -53,6 +53,13 @@ public:
 
   void write(const std::string & data);
 
+  // Blocks until all previously written bytes have been physically
+  // transmitted (POSIX tcdrain). Mirrors pyserial's Serial.flush(), which
+  // the Python driver calls after every shell command write before
+  // sleeping a fixed delay -- without draining, that fixed delay could
+  // start counting down before the bytes actually left the port.
+  void drain();
+
   // Reads and buffers available bytes, returning a complete line (without
   // the trailing '\n') once one is assembled. Returns std::nullopt if no
   // new bytes arrived within the configured timeout (mirrors pyserial's

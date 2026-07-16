@@ -25,6 +25,7 @@
 #include "dwm1001_driver_cpp/bounded_queue.hpp"
 #include "dwm1001_driver_cpp/dwm1001_shell.hpp"
 #include "dwm1001_driver_cpp/les_line_parser.hpp"
+#include "dwm1001_driver_cpp/node_utils.hpp"
 #include "dwm1001_driver_cpp/serial_port.hpp"
 #include "dwm1001_driver_cpp/string_utils.hpp"
 #include "dwm1001_msg/msg/float64_stamped.hpp"
@@ -39,17 +40,14 @@ using dwm1001_driver_cpp::AnchorReading;
 using dwm1001_driver_cpp::Dwm1001Shell;
 using dwm1001_driver_cpp::lstrip;
 using dwm1001_driver_cpp::lstripChar;
+using dwm1001_driver_cpp::makeDescriptor;
+using dwm1001_driver_cpp::nowSeconds;
 using dwm1001_driver_cpp::parseAnchors;
 using dwm1001_driver_cpp::parseEstimate;
+using dwm1001_driver_cpp::RateLimiter;
 using dwm1001_driver_cpp::SerialError;
 using dwm1001_driver_cpp::SerialPort;
 using dwm1001_driver_cpp::strip;
-
-double nowSeconds()
-{
-  return std::chrono::duration<double>(
-    std::chrono::steady_clock::now().time_since_epoch()).count();
-}
 
 }  // namespace
 
@@ -131,6 +129,7 @@ private:
   {
     std::shared_ptr<SerialPort> serial;
     ConnState state;
+    bool reader_ready;
   };
 
   // Copies the current serial handle + state under the lock so callers can
@@ -140,23 +139,10 @@ private:
   ConnectionSnapshot snapshotConnection()
   {
     std::lock_guard<std::mutex> lock(ser_mutex_);
-    return {serial_, state_};
+    return {serial_, state_, reader_ready_};
   }
 
   // ----------------- Parameters -----------------
-  // All parameters here are read-only strings/numbers, so a single
-  // factory avoids repeating the same 4-line ParameterDescriptor setup
-  // for each of the 9 parameters below.
-  static rcl_interfaces::msg::ParameterDescriptor makeDescriptor(
-    const std::string & description, uint8_t type)
-  {
-    rcl_interfaces::msg::ParameterDescriptor descriptor;
-    descriptor.description = description;
-    descriptor.type = type;
-    descriptor.read_only = true;
-    return descriptor;
-  }
-
   void declareParameters()
   {
     using rcl_interfaces::msg::ParameterType;
@@ -230,7 +216,18 @@ private:
         std::lock_guard<std::mutex> lock(ser_mutex_);
         old_serial = std::move(serial_);
         serial_ = new_serial;
+        // state_ = Connected already here so the shell helpers below
+        // (which all guard on "state == Connected") are willing to run.
+        // reader_ready_ stays false until the whole reset+shell+les
+        // sequence below has actually finished: otherwise the reader
+        // thread -- which only checks state_, not whether init is
+        // done -- would start calling readLine() on this same
+        // SerialPort concurrently with resetAndEnterShell()/
+        // startLesStream() still writing/flushing/peek-reading it from
+        // this thread, an unsynchronized concurrent access to
+        // SerialPort's internal buffer_/fd_.
         state_ = ConnState::Connected;
+        reader_ready_ = false;
         current_reconnect_delay_s_ = reconnect_initial_delay_s_;
         next_reconnect_attempt_t_ = 0.0;
       }
@@ -250,7 +247,21 @@ private:
           "Ensure LES mode is active on the DWM1001 tag.");
       }
 
+      // resetAndEnterShell()/startLesStream() swallow SerialError
+      // internally (via markDisconnected()) rather than propagating it,
+      // so a mid-handshake failure would otherwise fall through to
+      // "return true" below despite state_ having flipped back to
+      // Disconnected. Check explicitly instead of assuming success.
+      if (snapshotConnection().state != ConnState::Connected) {
+        return false;
+      }
+
       line_queue_.clear();
+
+      {
+        std::lock_guard<std::mutex> lock(ser_mutex_);
+        reader_ready_ = true;
+      }
 
       RCLCPP_INFO(get_logger(), "Serial connected and initialized. Node is operational.");
       return true;
@@ -261,6 +272,16 @@ private:
       }
       logDisconnectOnce(
         "Cannot open serial port '" + serial_port_ + "': " + e.what());
+      return false;
+    } catch (const std::exception & e) {
+      // Mirror of Python's second "except Exception" clause here: any
+      // other failure during open/init is also a disconnection, not an
+      // unhandled crash.
+      {
+        std::lock_guard<std::mutex> lock(ser_mutex_);
+        state_ = ConnState::Disconnected;
+      }
+      logDisconnectOnce(std::string("Serial init error: ") + e.what());
       return false;
     }
   }
@@ -274,6 +295,7 @@ private:
         return;
       }
       state_ = ConnState::Disconnected;
+      reader_ready_ = false;
       old_serial = std::move(serial_);
       serial_.reset();
 
@@ -289,10 +311,8 @@ private:
 
   void logDisconnectOnce(const std::string & msg)
   {
-    double now = nowSeconds();
-    if (now - last_disconnect_log_t_ > 2.0) {
+    if (disconnect_log_rate_limiter_.allow()) {
       RCLCPP_WARN(get_logger(), "[SERIAL DISCONNECTED] %s", msg.c_str());
-      last_disconnect_log_t_ = now;
     }
   }
 
@@ -306,7 +326,9 @@ private:
     try {
       Dwm1001Shell shell(*conn.serial);
       shell.sendCommand(cmd, delay_seconds);
-    } catch (const SerialError & e) {
+    } catch (const std::exception & e) {
+      // Mirror of Python's broad "except Exception" here: anything going
+      // wrong while talking to the port is treated as a disconnection.
       markDisconnected("Failed to send shell command '" + cmd + "': " + e.what());
     }
   }
@@ -326,7 +348,7 @@ private:
     try {
       Dwm1001Shell shell(*conn.serial);
       shell.enterShellMode(1.0);
-    } catch (const SerialError & e) {
+    } catch (const std::exception & e) {
       markDisconnected(std::string("Failed to enter shell mode: ") + e.what());
     }
   }
@@ -343,7 +365,7 @@ private:
 
     try {
       conn.serial->flushInput();
-    } catch (const SerialError &) {
+    } catch (const std::exception &) {
       // best effort
     }
 
@@ -354,7 +376,7 @@ private:
       if (!peek.empty()) {
         RCLCPP_INFO(get_logger(), "LES: received initial %zu bytes.", peek.size());
       }
-    } catch (const SerialError & e) {
+    } catch (const std::exception & e) {
       markDisconnected(std::string("LES start/peek failed: ") + e.what());
     }
   }
@@ -409,7 +431,7 @@ private:
     while (running_.load()) {
       auto conn = snapshotConnection();
 
-      if (conn.state != ConnState::Connected || !conn.serial) {
+      if (conn.state != ConnState::Connected || !conn.serial || !conn.reader_ready) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         continue;
       }
@@ -426,6 +448,12 @@ private:
         line_queue_.push(decoded);
       } catch (const SerialError & e) {
         markDisconnected(std::string("Serial read error: ") + e.what());
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      } catch (const std::exception & e) {
+        // Mirror of the Python reader loop's catch-all "except Exception":
+        // treat anything unexpected as a disconnection rather than letting
+        // it escape this detached thread and call std::terminate().
+        markDisconnected(std::string("Unexpected serial read error: ") + e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
       }
     }
@@ -531,7 +559,13 @@ private:
   std::mutex ser_mutex_;
   std::shared_ptr<SerialPort> serial_;
   ConnState state_ = ConnState::Disconnected;
-  double last_disconnect_log_t_ = 0.0;
+  // True only once the full reset+shell+les init sequence has finished for
+  // the current serial_ handle -- distinct from state_ == Connected, which
+  // flips true earlier so the init sequence itself (running on this same
+  // thread) is allowed to use the handle. The reader thread waits on this
+  // flag too so it never touches serial_ while init is still in progress.
+  bool reader_ready_ = false;
+  RateLimiter disconnect_log_rate_limiter_{2.0};
   double next_reconnect_attempt_t_ = 0.0;
   double current_reconnect_delay_s_ = 0.0;
 

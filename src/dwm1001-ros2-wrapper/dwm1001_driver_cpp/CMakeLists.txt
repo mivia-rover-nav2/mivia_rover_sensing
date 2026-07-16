@@ -9,6 +9,7 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rcl_interfaces REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(dwm1001_msg REQUIRED)
 
 add_executable(dummy_active_tag src/dummy_active_tag_node.cpp)
@@ -26,6 +27,7 @@ add_library(dwm1001_serial STATIC
   src/serial_port.cpp
   src/dwm1001_shell.cpp
   src/les_line_parser.cpp
+  src/pos_report_parser.cpp
 )
 target_compile_features(dwm1001_serial PUBLIC cxx_std_17)
 target_include_directories(dwm1001_serial PUBLIC
@@ -37,7 +39,22 @@ target_compile_features(les_mode_tag PUBLIC cxx_std_17)
 target_link_libraries(les_mode_tag dwm1001_serial)
 ament_target_dependencies(les_mode_tag rclcpp rcl_interfaces geometry_msgs dwm1001_msg)
 
-install(TARGETS dummy_active_tag dummy_passive_tag les_mode_tag
+add_executable(ranging_tag src/ranging_tag_node.cpp)
+target_compile_features(ranging_tag PUBLIC cxx_std_17)
+target_link_libraries(ranging_tag dwm1001_serial)
+ament_target_dependencies(ranging_tag rclcpp rcl_interfaces geometry_msgs std_msgs)
+
+add_executable(active_tag src/active_tag_node.cpp)
+target_compile_features(active_tag PUBLIC cxx_std_17)
+target_link_libraries(active_tag dwm1001_serial)
+ament_target_dependencies(active_tag rclcpp rcl_interfaces geometry_msgs dwm1001_msg)
+
+add_executable(passive_tag src/passive_tag_node.cpp)
+target_compile_features(passive_tag PUBLIC cxx_std_17)
+target_link_libraries(passive_tag dwm1001_serial)
+ament_target_dependencies(passive_tag rclcpp rcl_interfaces geometry_msgs)
+
+install(TARGETS dummy_active_tag dummy_passive_tag les_mode_tag ranging_tag active_tag passive_tag
   DESTINATION lib/${PROJECT_NAME}
 )
 

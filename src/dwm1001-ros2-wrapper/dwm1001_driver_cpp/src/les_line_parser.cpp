@@ -46,13 +46,25 @@ std::vector<AnchorReading> parseAnchors(const std::string & line)
     it != std::sregex_iterator(); ++it)
   {
     const std::smatch & m = *it;
-    AnchorReading reading;
-    reading.id = toUpper(m[1].str());
-    reading.x = std::stod(m[2].str());
-    reading.y = std::stod(m[3].str());
-    reading.z = std::stod(m[4].str());
-    reading.distance = std::stod(m[5].str());
-    readings.push_back(std::move(reading));
+    try {
+      AnchorReading reading;
+      reading.id = toUpper(m[1].str());
+      reading.x = std::stod(m[2].str());
+      reading.y = std::stod(m[3].str());
+      reading.z = std::stod(m[4].str());
+      reading.distance = std::stod(m[5].str());
+      readings.push_back(std::move(reading));
+    } catch (const std::out_of_range &) {
+      // The regex only matches well-formed digit runs, so std::stod can't
+      // fail on syntax -- but an unusually long run (e.g. a desynced/
+      // garbled stream that happens to still match) can overflow double,
+      // which std::stod treats as an error where Python's float() would
+      // just round. Skip this one match rather than losing the whole
+      // line's anchors (or, unhandled, crashing the node via main()'s
+      // catch-all -- rclpy tolerates exceptions in a timer callback,
+      // rclcpp here does not).
+      continue;
+    }
   }
   return readings;
 }
@@ -64,12 +76,16 @@ std::optional<TagEstimate> parseEstimate(const std::string & line)
     return std::nullopt;
   }
 
-  TagEstimate estimate;
-  estimate.x = std::stod(m[1].str());
-  estimate.y = std::stod(m[2].str());
-  estimate.z = std::stod(m[3].str());
-  estimate.quality = std::stod(m[4].str());
-  return estimate;
+  try {
+    TagEstimate estimate;
+    estimate.x = std::stod(m[1].str());
+    estimate.y = std::stod(m[2].str());
+    estimate.z = std::stod(m[3].str());
+    estimate.quality = std::stod(m[4].str());
+    return estimate;
+  } catch (const std::out_of_range &) {
+    return std::nullopt;
+  }
 }
 
 }  // namespace dwm1001_driver_cpp

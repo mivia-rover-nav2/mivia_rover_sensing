@@ -167,6 +167,13 @@ void SerialPort::write(const std::string & data)
   }
 }
 
+void SerialPort::drain()
+{
+  if (tcdrain(fd_) != 0) {
+    throw SerialError(errnoMessage("tcdrain failed"));
+  }
+}
+
 std::optional<std::string> SerialPort::readLine()
 {
   auto newline_pos = buffer_.find('\n');

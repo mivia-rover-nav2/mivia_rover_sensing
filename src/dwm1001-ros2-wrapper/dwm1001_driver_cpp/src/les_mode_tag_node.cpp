@@ -15,18 +15,18 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <regex>
 #include <string>
 #include <thread>
 #include <unordered_map>
 
 #include "dwm1001_driver_cpp/bounded_queue.hpp"
 #include "dwm1001_driver_cpp/dwm1001_shell.hpp"
+#include "dwm1001_driver_cpp/les_line_parser.hpp"
 #include "dwm1001_driver_cpp/serial_port.hpp"
+#include "dwm1001_driver_cpp/string_utils.hpp"
 #include "dwm1001_msg/msg/float64_stamped.hpp"
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
@@ -35,63 +35,15 @@
 namespace
 {
 
+using dwm1001_driver_cpp::AnchorReading;
 using dwm1001_driver_cpp::Dwm1001Shell;
+using dwm1001_driver_cpp::lstrip;
+using dwm1001_driver_cpp::lstripChar;
+using dwm1001_driver_cpp::parseAnchors;
+using dwm1001_driver_cpp::parseEstimate;
 using dwm1001_driver_cpp::SerialError;
 using dwm1001_driver_cpp::SerialPort;
-
-// Matches anchor blocks such as "1783[1.00,2.00,1.17]=2.87": anchor id,
-// its known position, and the measured range. Groups: 1=id, 2=x, 3=y,
-// 4=z, 5=distance. std::regex (ECMAScript grammar) has no named capture
-// groups, unlike Python's re.
-const std::regex kAnchorPattern(
-  R"(([0-9A-Fa-f]{4})\s*\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*)"
-  R"((-?\d+(?:\.\d+)?)\s*\]\s*=\s*(-?\d+(?:\.\d+)?))");
-
-// Matches the tag position estimate, e.g. "est[1.23,4.56,0.10,80]".
-// Groups: 1=x, 2=y, 3=z, 4=quality.
-const std::regex kEstPattern(
-  R"(est\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*)"
-  R"((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\])");
-
-std::string lstrip(const std::string & s)
-{
-  std::size_t i = 0;
-  while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) {
-    ++i;
-  }
-  return s.substr(i);
-}
-
-std::string rstrip(const std::string & s)
-{
-  std::size_t i = s.size();
-  while (i > 0 && std::isspace(static_cast<unsigned char>(s[i - 1]))) {
-    --i;
-  }
-  return s.substr(0, i);
-}
-
-std::string strip(const std::string & s)
-{
-  return rstrip(lstrip(s));
-}
-
-std::string lstripChar(const std::string & s, char c)
-{
-  std::size_t i = 0;
-  while (i < s.size() && s[i] == c) {
-    ++i;
-  }
-  return s.substr(i);
-}
-
-std::string toUpper(std::string s)
-{
-  std::transform(
-    s.begin(), s.end(), s.begin(),
-    [](unsigned char c) {return std::toupper(c);});
-  return s;
-}
+using dwm1001_driver_cpp::strip;
 
 double nowSeconds()
 {
@@ -175,71 +127,80 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr pos_pub;
   };
 
+  struct ConnectionSnapshot
+  {
+    std::shared_ptr<SerialPort> serial;
+    ConnState state;
+  };
+
+  // Copies the current serial handle + state under the lock so callers can
+  // use them afterwards without holding it (mirrors the Python driver's
+  // "with self._ser_lock: ser = self.ser; state = self._state" pattern,
+  // repeated at every call site there too).
+  ConnectionSnapshot snapshotConnection()
+  {
+    std::lock_guard<std::mutex> lock(ser_mutex_);
+    return {serial_, state_};
+  }
+
   // ----------------- Parameters -----------------
+  // All parameters here are read-only strings/numbers, so a single
+  // factory avoids repeating the same 4-line ParameterDescriptor setup
+  // for each of the 9 parameters below.
+  static rcl_interfaces::msg::ParameterDescriptor makeDescriptor(
+    const std::string & description, uint8_t type)
+  {
+    rcl_interfaces::msg::ParameterDescriptor descriptor;
+    descriptor.description = description;
+    descriptor.type = type;
+    descriptor.read_only = true;
+    return descriptor;
+  }
+
   void declareParameters()
   {
-    rcl_interfaces::msg::ParameterDescriptor serial_port_desc;
-    serial_port_desc.description =
-      "Device/COM port for DWM1001 (e.g., /dev/ttyACM0 or /dev/serial/by-id/...)";
-    serial_port_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_STRING;
-    serial_port_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor baudrate_desc;
-    baudrate_desc.description = "Baudrate for serial port.";
-    baudrate_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_INTEGER;
-    baudrate_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor frame_id_desc;
-    frame_id_desc.description = "Frame id used for published PointStamped messages.";
-    frame_id_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_STRING;
-    frame_id_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor send_les_desc;
-    send_les_desc.description =
-      "Send 'les' command on startup to enable ranging stream (after reset+shell).";
-    send_les_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
-    send_les_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor reconnect_enabled_desc;
-    reconnect_enabled_desc.description =
-      "Enable auto-reconnect on serial failures/disconnections.";
-    reconnect_enabled_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_BOOL;
-    reconnect_enabled_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor reconnect_initial_delay_desc;
-    reconnect_initial_delay_desc.description = "Initial reconnect delay (seconds).";
-    reconnect_initial_delay_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-    reconnect_initial_delay_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor reconnect_max_delay_desc;
-    reconnect_max_delay_desc.description = "Maximum reconnect delay (seconds).";
-    reconnect_max_delay_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-    reconnect_max_delay_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor reconnect_backoff_desc;
-    reconnect_backoff_desc.description =
-      "Backoff multiplier applied after each failed reconnect attempt.";
-    reconnect_backoff_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-    reconnect_backoff_desc.read_only = true;
-
-    rcl_interfaces::msg::ParameterDescriptor reconnect_timer_period_desc;
-    reconnect_timer_period_desc.description =
-      "Watchdog timer period for reconnect attempts (seconds).";
-    reconnect_timer_period_desc.type = rcl_interfaces::msg::ParameterType::PARAMETER_DOUBLE;
-    reconnect_timer_period_desc.read_only = true;
+    using rcl_interfaces::msg::ParameterType;
 
     declare_parameter<std::string>(
-      "serial_port", "/dev/serial/by-id/usb-SEGGER_J-Link_000760176108-if00", serial_port_desc);
-    declare_parameter<int>("baudrate", 115200, baudrate_desc);
-    declare_parameter<std::string>("frame_id", "dwm1001", frame_id_desc);
-    declare_parameter<bool>("send_les_on_start", true, send_les_desc);
+      "serial_port", "/dev/serial/by-id/usb-SEGGER_J-Link_000760176108-if00",
+      makeDescriptor(
+        "Device/COM port for DWM1001 (e.g., /dev/ttyACM0 or /dev/serial/by-id/...)",
+        ParameterType::PARAMETER_STRING));
+    declare_parameter<int>(
+      "baudrate", 115200,
+      makeDescriptor("Baudrate for serial port.", ParameterType::PARAMETER_INTEGER));
+    declare_parameter<std::string>(
+      "frame_id", "dwm1001",
+      makeDescriptor(
+        "Frame id used for published PointStamped messages.",
+        ParameterType::PARAMETER_STRING));
+    declare_parameter<bool>(
+      "send_les_on_start", true,
+      makeDescriptor(
+        "Send 'les' command on startup to enable ranging stream (after reset+shell).",
+        ParameterType::PARAMETER_BOOL));
 
-    declare_parameter<bool>("reconnect_enabled", true, reconnect_enabled_desc);
-    declare_parameter<double>("reconnect_initial_delay_s", 0.5, reconnect_initial_delay_desc);
-    declare_parameter<double>("reconnect_max_delay_s", 10.0, reconnect_max_delay_desc);
-    declare_parameter<double>("reconnect_backoff", 1.6, reconnect_backoff_desc);
+    declare_parameter<bool>(
+      "reconnect_enabled", true,
+      makeDescriptor(
+        "Enable auto-reconnect on serial failures/disconnections.",
+        ParameterType::PARAMETER_BOOL));
     declare_parameter<double>(
-      "reconnect_timer_period_s", 0.2, reconnect_timer_period_desc);
+      "reconnect_initial_delay_s", 0.5,
+      makeDescriptor("Initial reconnect delay (seconds).", ParameterType::PARAMETER_DOUBLE));
+    declare_parameter<double>(
+      "reconnect_max_delay_s", 10.0,
+      makeDescriptor("Maximum reconnect delay (seconds).", ParameterType::PARAMETER_DOUBLE));
+    declare_parameter<double>(
+      "reconnect_backoff", 1.6,
+      makeDescriptor(
+        "Backoff multiplier applied after each failed reconnect attempt.",
+        ParameterType::PARAMETER_DOUBLE));
+    declare_parameter<double>(
+      "reconnect_timer_period_s", 0.2,
+      makeDescriptor(
+        "Watchdog timer period for reconnect attempts (seconds).",
+        ParameterType::PARAMETER_DOUBLE));
   }
 
   // ----------------- Serial connection / init -----------------
@@ -338,18 +299,12 @@ private:
   // ----------------- Shell control -----------------
   void sendShellCommand(const std::string & cmd, double delay_seconds)
   {
-    std::shared_ptr<SerialPort> serial;
-    ConnState state;
-    {
-      std::lock_guard<std::mutex> lock(ser_mutex_);
-      serial = serial_;
-      state = state_;
-    }
-    if (state != ConnState::Connected || !serial) {
+    auto conn = snapshotConnection();
+    if (conn.state != ConnState::Connected || !conn.serial) {
       return;
     }
     try {
-      Dwm1001Shell shell(*serial);
+      Dwm1001Shell shell(*conn.serial);
       shell.sendCommand(cmd, delay_seconds);
     } catch (const SerialError & e) {
       markDisconnected("Failed to send shell command '" + cmd + "': " + e.what());
@@ -364,18 +319,12 @@ private:
 
     RCLCPP_INFO(get_logger(), "Entering shell mode...");
 
-    std::shared_ptr<SerialPort> serial;
-    ConnState state;
-    {
-      std::lock_guard<std::mutex> lock(ser_mutex_);
-      serial = serial_;
-      state = state_;
-    }
-    if (state != ConnState::Connected || !serial) {
+    auto conn = snapshotConnection();
+    if (conn.state != ConnState::Connected || !conn.serial) {
       return;
     }
     try {
-      Dwm1001Shell shell(*serial);
+      Dwm1001Shell shell(*conn.serial);
       shell.enterShellMode(1.0);
     } catch (const SerialError & e) {
       markDisconnected(std::string("Failed to enter shell mode: ") + e.what());
@@ -387,27 +336,21 @@ private:
     RCLCPP_INFO(get_logger(), "Starting LES stream (les)...");
     sendShellCommand("les", 0.2);
 
-    std::shared_ptr<SerialPort> serial;
-    ConnState state;
-    {
-      std::lock_guard<std::mutex> lock(ser_mutex_);
-      serial = serial_;
-      state = state_;
-    }
-    if (state != ConnState::Connected || !serial) {
+    auto conn = snapshotConnection();
+    if (conn.state != ConnState::Connected || !conn.serial) {
       return;
     }
 
     try {
-      serial->flushInput();
+      conn.serial->flushInput();
     } catch (const SerialError &) {
       // best effort
     }
 
     std::this_thread::sleep_for(std::chrono::duration<double>(0.1));
     try {
-      int waiting = serial->bytesWaiting();
-      std::string peek = serial->readRaw(waiting > 0 ? static_cast<std::size_t>(waiting) : 1);
+      int waiting = conn.serial->bytesWaiting();
+      std::string peek = conn.serial->readRaw(waiting > 0 ? static_cast<std::size_t>(waiting) : 1);
       if (!peek.empty()) {
         RCLCPP_INFO(get_logger(), "LES: received initial %zu bytes.", peek.size());
       }
@@ -464,21 +407,15 @@ private:
   {
     RCLCPP_INFO(get_logger(), "Starting serial reader thread (readLine).");
     while (running_.load()) {
-      std::shared_ptr<SerialPort> serial;
-      ConnState state;
-      {
-        std::lock_guard<std::mutex> lock(ser_mutex_);
-        serial = serial_;
-        state = state_;
-      }
+      auto conn = snapshotConnection();
 
-      if (state != ConnState::Connected || !serial) {
+      if (conn.state != ConnState::Connected || !conn.serial) {
         std::this_thread::sleep_for(std::chrono::milliseconds(50));
         continue;
       }
 
       try {
-        auto raw = serial->readLine();
+        auto raw = conn.serial->readLine();
         if (!raw || raw->empty()) {
           continue;
         }
@@ -497,11 +434,8 @@ private:
   // ----------------- Parsing + Publish -----------------
   void processLines()
   {
-    {
-      std::lock_guard<std::mutex> lock(ser_mutex_);
-      if (state_ != ConnState::Connected) {
-        return;
-      }
+    if (snapshotConnection().state != ConnState::Connected) {
+      return;
     }
 
     std::size_t processed = 0;
@@ -519,52 +453,37 @@ private:
 
       rclcpp::Time now_stamp = this->get_clock()->now();
 
-      for (auto it = std::sregex_iterator(line.begin(), line.end(), kAnchorPattern);
-        it != std::sregex_iterator(); ++it)
-      {
-        const std::smatch & m = *it;
-        std::string anchor_id = toUpper(m[1].str());
-        double x = std::stod(m[2].str());
-        double y = std::stod(m[3].str());
-        double z = std::stod(m[4].str());
-        double dist = std::stod(m[5].str());
-
-        AnchorPublishers & pubs = getOrCreateAnchorPubs(anchor_id);
+      for (const AnchorReading & reading : parseAnchors(line)) {
+        AnchorPublishers & pubs = getOrCreateAnchorPubs(reading.id);
 
         dwm1001_msg::msg::Float64Stamped r_msg;
         r_msg.header.stamp = now_stamp;
         r_msg.header.frame_id = frame_id_;
-        r_msg.value = dist;
+        r_msg.value = reading.distance;
         pubs.range_pub->publish(r_msg);
 
         geometry_msgs::msg::PointStamped p_msg;
         p_msg.header.stamp = now_stamp;
         p_msg.header.frame_id = frame_id_;
-        p_msg.point.x = x;
-        p_msg.point.y = y;
-        p_msg.point.z = z;
+        p_msg.point.x = reading.x;
+        p_msg.point.y = reading.y;
+        p_msg.point.z = reading.z;
         pubs.pos_pub->publish(p_msg);
       }
 
-      std::smatch est_match;
-      if (std::regex_search(line, est_match, kEstPattern)) {
-        double tx = std::stod(est_match[1].str());
-        double ty = std::stod(est_match[2].str());
-        double tz = std::stod(est_match[3].str());
-        double q = std::stod(est_match[4].str());
-
+      if (auto estimate = parseEstimate(line)) {
         geometry_msgs::msg::PointStamped t_msg;
         t_msg.header.stamp = now_stamp;
         t_msg.header.frame_id = frame_id_;
-        t_msg.point.x = tx;
-        t_msg.point.y = ty;
-        t_msg.point.z = tz;
+        t_msg.point.x = estimate->x;
+        t_msg.point.y = estimate->y;
+        t_msg.point.z = estimate->z;
         tag_pos_pub_->publish(t_msg);
 
         dwm1001_msg::msg::Float64Stamped q_msg;
         q_msg.header.stamp = now_stamp;
         q_msg.header.frame_id = frame_id_;
-        q_msg.value = q;
+        q_msg.value = estimate->quality;
         tag_quality_pub_->publish(q_msg);
       }
     }

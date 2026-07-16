@@ -25,6 +25,7 @@ ament_target_dependencies(dummy_passive_tag rclcpp rcl_interfaces geometry_msgs)
 add_library(dwm1001_serial STATIC
   src/serial_port.cpp
   src/dwm1001_shell.cpp
+  src/les_line_parser.cpp
 )
 target_compile_features(dwm1001_serial PUBLIC cxx_std_17)
 target_include_directories(dwm1001_serial PUBLIC

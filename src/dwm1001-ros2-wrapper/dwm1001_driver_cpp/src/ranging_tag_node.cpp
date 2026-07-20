@@ -36,6 +36,9 @@ namespace
 {
 
 using dwm1001_driver_cpp::AnchorReading;
+using dwm1001_driver_cpp::kDefaultBaudRate;
+using dwm1001_driver_cpp::kProcessTimerPeriod;
+using dwm1001_driver_cpp::kReaderRetryDelay;
 using dwm1001_driver_cpp::makeDescriptor;
 using dwm1001_driver_cpp::parseAnchors;
 using dwm1001_driver_cpp::RateLimiter;
@@ -92,7 +95,7 @@ public:
     reader_thread_ = std::thread(&DWMLesPublisherNode::serialReaderLoop, this);
 
     process_timer_ = create_wall_timer(
-      std::chrono::milliseconds(10), std::bind(&DWMLesPublisherNode::processLines, this));
+      kProcessTimerPeriod, std::bind(&DWMLesPublisherNode::processLines, this));
   }
 
   ~DWMLesPublisherNode() override
@@ -124,7 +127,7 @@ private:
         "Device/COM port for DWM1001 (e.g., /dev/ttyACM0, COM3)",
         ParameterType::PARAMETER_STRING));
     declare_parameter<int>(
-      "baudrate", 115200,
+      "baudrate", kDefaultBaudRate,
       makeDescriptor("Baudrate for serial port.", ParameterType::PARAMETER_INTEGER));
     declare_parameter<std::string>(
       "frame_id", "dwm1001",
@@ -159,13 +162,13 @@ private:
         // pause so a persistently disconnected device doesn't spin the
         // loop at full CPU, since our poll()-based SerialPort detects a
         // hangup almost instantly instead of waiting out a real timeout.
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
       } catch (const std::exception & e) {
         // Mirror of ranging_tag.py's reader loop catch-all "except
         // Exception": anything unexpected shouldn't be allowed to escape
         // this detached thread and call std::terminate().
         logReadErrorOnce(std::string("Unexpected serial read error: ") + e.what());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
       }
     }
   }
@@ -249,7 +252,10 @@ private:
 
   // ----------------- Serial / reader thread -----------------
   std::shared_ptr<SerialPort> serial_;
-  dwm1001_driver_cpp::BoundedQueue<std::string> line_queue_{100};
+  // Mirrors the maxsize of the queue.Queue() in the Python original
+  // (ranging_tag.py).
+  static constexpr std::size_t kLineQueueCapacity = 100;
+  dwm1001_driver_cpp::BoundedQueue<std::string> line_queue_{kLineQueueCapacity};
   std::atomic<bool> running_{false};
   std::thread reader_thread_;
   RateLimiter read_error_rate_limiter_{2.0};

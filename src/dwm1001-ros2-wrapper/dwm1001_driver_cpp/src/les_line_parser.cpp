@@ -23,24 +23,27 @@
 namespace dwm1001_driver_cpp
 {
 
-namespace
-{
-
-// Groups: 1=id, 2=x, 3=y, 4=z, 5=distance. std::regex (ECMAScript
-// grammar) has no named capture groups, unlike Python's re.
-const std::regex kAnchorPattern(
-  R"(([0-9A-Fa-f]{4})\s*\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*)"
-  R"((-?\d+(?:\.\d+)?)\s*\]\s*=\s*(-?\d+(?:\.\d+)?))");
-
-// Groups: 1=x, 2=y, 3=z, 4=quality.
-const std::regex kEstPattern(
-  R"(est\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*)"
-  R"((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\])");
-
-}  // namespace
-
 std::vector<AnchorReading> parseAnchors(const std::string & line)
 {
+  // std::regex (ECMAScript grammar) has no named capture groups, unlike
+  // Python's re -- name the group indices instead of leaving m[5] etc.
+  // to be decoded against the pattern by hand.
+  constexpr int kIdGroup = 1;
+  constexpr int kXGroup = 2;
+  constexpr int kYGroup = 3;
+  constexpr int kZGroup = 4;
+  constexpr int kDistanceGroup = 5;
+
+  // Function-local static rather than namespace-scope: std::regex's
+  // constructor can throw std::regex_error on a malformed pattern, and a
+  // namespace-scope object would be constructed before main() even
+  // starts, where that exception would be uncatchable (std::terminate()
+  // with no diagnostic from this program). A local static is instead
+  // constructed on first call, inside code main()'s try/catch can reach.
+  static const std::regex kAnchorPattern(
+    R"(([0-9A-Fa-f]{4})\s*\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*)"
+    R"((-?\d+(?:\.\d+)?)\s*\]\s*=\s*(-?\d+(?:\.\d+)?))");
+
   std::vector<AnchorReading> readings;
   for (auto it = std::sregex_iterator(line.begin(), line.end(), kAnchorPattern);
     it != std::sregex_iterator(); ++it)
@@ -48,11 +51,11 @@ std::vector<AnchorReading> parseAnchors(const std::string & line)
     const std::smatch & m = *it;
     try {
       AnchorReading reading;
-      reading.id = toUpper(m[1].str());
-      reading.x = std::stod(m[2].str());
-      reading.y = std::stod(m[3].str());
-      reading.z = std::stod(m[4].str());
-      reading.distance = std::stod(m[5].str());
+      reading.id = toUpper(m[kIdGroup].str());
+      reading.x = std::stod(m[kXGroup].str());
+      reading.y = std::stod(m[kYGroup].str());
+      reading.z = std::stod(m[kZGroup].str());
+      reading.distance = std::stod(m[kDistanceGroup].str());
       readings.push_back(std::move(reading));
     } catch (const std::out_of_range &) {
       // The regex only matches well-formed digit runs, so std::stod can't
@@ -71,6 +74,12 @@ std::vector<AnchorReading> parseAnchors(const std::string & line)
 
 std::optional<TagEstimate> parseEstimate(const std::string & line)
 {
+  // Groups: 1=x, 2=y, 3=z, 4=quality. See parseAnchors() above for why
+  // this is a function-local static rather than namespace-scope.
+  static const std::regex kEstPattern(
+    R"(est\[\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*,\s*)"
+    R"((-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*\])");
+
   std::smatch m;
   if (!std::regex_search(line, m, kEstPattern)) {
     return std::nullopt;

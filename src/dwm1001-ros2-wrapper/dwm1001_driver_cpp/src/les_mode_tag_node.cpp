@@ -39,6 +39,9 @@ namespace
 using dwm1001_driver_cpp::AnchorReading;
 using dwm1001_driver_cpp::Dwm1001Shell;
 using dwm1001_driver_cpp::lstrip;
+using dwm1001_driver_cpp::kDefaultBaudRate;
+using dwm1001_driver_cpp::kProcessTimerPeriod;
+using dwm1001_driver_cpp::kReaderRetryDelay;
 using dwm1001_driver_cpp::lstripChar;
 using dwm1001_driver_cpp::makeDescriptor;
 using dwm1001_driver_cpp::nowSeconds;
@@ -92,7 +95,7 @@ public:
     reader_thread_ = std::thread(&DWM1001LesPublisherNode::serialReaderLoop, this);
 
     process_timer_ = create_wall_timer(
-      std::chrono::milliseconds(10),
+      kProcessTimerPeriod,
       std::bind(&DWM1001LesPublisherNode::processLines, this));
     reconnect_timer_ = create_wall_timer(
       std::chrono::duration<double>(reconnect_timer_period_s_),
@@ -153,7 +156,7 @@ private:
         "Device/COM port for DWM1001 (e.g., /dev/ttyACM0 or /dev/serial/by-id/...)",
         ParameterType::PARAMETER_STRING));
     declare_parameter<int>(
-      "baudrate", 115200,
+      "baudrate", kDefaultBaudRate,
       makeDescriptor("Baudrate for serial port.", ParameterType::PARAMETER_INTEGER));
     declare_parameter<std::string>(
       "frame_id", "dwm1001",
@@ -388,9 +391,9 @@ private:
       return;
     }
 
-    ConnState state;
-    double next_t;
-    double delay;
+    ConnState state = ConnState::Disconnected;
+    double next_t = 0.0;
+    double delay = 0.0;
     {
       std::lock_guard<std::mutex> lock(ser_mutex_);
       state = state_;
@@ -411,7 +414,7 @@ private:
       return;
     }
 
-    double new_delay;
+    double new_delay = 0.0;
     {
       std::lock_guard<std::mutex> lock(ser_mutex_);
       new_delay = std::min(
@@ -432,7 +435,7 @@ private:
       auto conn = snapshotConnection();
 
       if (conn.state != ConnState::Connected || !conn.serial || !conn.reader_ready) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
         continue;
       }
 
@@ -448,13 +451,13 @@ private:
         line_queue_.push(decoded);
       } catch (const SerialError & e) {
         markDisconnected(std::string("Serial read error: ") + e.what());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
       } catch (const std::exception & e) {
         // Mirror of the Python reader loop's catch-all "except Exception":
         // treat anything unexpected as a disconnection rather than letting
         // it escape this detached thread and call std::terminate().
         markDisconnected(std::string("Unexpected serial read error: ") + e.what());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
       }
     }
   }
@@ -570,7 +573,11 @@ private:
   double current_reconnect_delay_s_ = 0.0;
 
   // ----------------- Reader thread / queue -----------------
-  dwm1001_driver_cpp::BoundedQueue<std::string> line_queue_{500};
+  // Mirrors the maxsize of the queue.Queue() in the Python original
+  // (les_mode_tag.py): generous headroom so a brief processing stall
+  // doesn't silently drop lines before the 100 Hz timer drains it.
+  static constexpr std::size_t kLineQueueCapacity = 500;
+  dwm1001_driver_cpp::BoundedQueue<std::string> line_queue_{kLineQueueCapacity};
   std::atomic<bool> running_{false};
   std::thread reader_thread_;
 

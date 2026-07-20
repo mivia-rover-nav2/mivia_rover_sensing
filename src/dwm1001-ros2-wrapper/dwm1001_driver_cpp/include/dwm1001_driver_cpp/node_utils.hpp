@@ -26,6 +26,27 @@
 namespace dwm1001_driver_cpp
 {
 
+// DWM1001's fixed UART baud rate -- used as the hardcoded rate in
+// active_tag_node.cpp/passive_tag_node.cpp (no baudrate parameter there)
+// and as the "baudrate" parameter default in les_mode_tag_node.cpp/
+// ranging_tag_node.cpp. One shared constant instead of the same literal
+// typed out in four files.
+constexpr int kDefaultBaudRate = 115200;
+
+// Reader-thread retry pause after a serial read error, shared by all four
+// nodes' serialReaderLoop(): avoids a busy-loop on a persistently
+// disconnected device (our poll()-based SerialPort detects a hangup
+// almost instantly, unlike a real read timeout).
+constexpr std::chrono::milliseconds kReaderRetryDelay{50};
+
+// Upper bound on the moving-average sample count ("samples"/"num_samples"
+// parameter), shared by active_tag_node.cpp and passive_tag_node.cpp.
+constexpr int kMaxSamples = 10;
+
+// Processing-timer period for the les/lep line queue (100 Hz), shared by
+// les_mode_tag_node.cpp and ranging_tag_node.cpp.
+constexpr std::chrono::milliseconds kProcessTimerPeriod{10};
+
 inline double nowSeconds()
 {
   return std::chrono::duration<double>(

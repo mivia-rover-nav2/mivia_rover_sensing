@@ -30,6 +30,13 @@ namespace dwm1001_driver_cpp
 namespace
 {
 
+// Bytes read per ::read() call in readLine(); doesn't need to hold a
+// whole line since bytes are appended incrementally to a persistent
+// std::string buffer across calls -- just a reasonable chunk per
+// syscall for a text protocol whose lines are typically well under
+// this size.
+constexpr std::size_t kReadChunkSize = 256;
+
 speed_t baudToSpeed(int baudrate)
 {
   switch (baudrate) {
@@ -68,6 +75,13 @@ bool waitReadable(int fd, int timeout_ms)
   if (ret == 0) {
     return false;
   }
+  // Documented deviation (hicpp-signed-bitwise): POLLHUP/POLLERR/POLLNVAL
+  // are signed int constants defined by <poll.h> (POSIX), not values this
+  // code chooses or controls. Wrapping every use of a
+  // system-header flag constant in an explicit unsigned cast would add
+  // noise without removing any real risk -- the values are fixed,
+  // known-at-compile-time small bit flags, not attacker- or
+  // runtime-controlled data.
   if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) {
     throw SerialError("Serial port disconnected (poll reported HUP/ERR)");
   }
@@ -85,6 +99,9 @@ SerialPort::~SerialPort()
 
 void SerialPort::open(const std::string & path, int baudrate, int timeout_deciseconds)
 {
+  // Documented deviation (hicpp-signed-bitwise): O_RDWR/O_NOCTTY/
+  // O_NONBLOCK are signed int constants from <fcntl.h> (POSIX) -- see the
+  // longer note further down where the termios flags are set.
   fd_ = ::open(path.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
   if (fd_ < 0) {
     throw SerialError(errnoMessage("Cannot open serial port '" + path + "'"));
@@ -106,6 +123,14 @@ void SerialPort::open(const std::string & path, int baudrate, int timeout_decise
   speed_t speed = baudToSpeed(baudrate);
   cfsetispeed(&tty, speed);
   cfsetospeed(&tty, speed);
+
+  // Documented deviation (hicpp-signed-bitwise) for this whole block:
+  // PARENB, CSTOPB, CS8, CRTSCTS, ICANON, OPOST, etc. are all signed int
+  // constants defined by <termios.h> (POSIX) -- configuring a termios
+  // struct is inherently bitwise flag manipulation on OS-defined values
+  // this code doesn't control. Casting each one individually would add
+  // noise without removing any real risk (fixed, known-at-compile-time
+  // flags, not runtime/attacker-controlled data).
 
   // 8N1, no hardware/software flow control (mirrors rtscts=False,
   // dsrdtr=False, xonxoff=False in the Python driver).
@@ -135,6 +160,7 @@ void SerialPort::open(const std::string & path, int baudrate, int timeout_decise
     throw SerialError(errnoMessage("tcsetattr failed on '" + path + "'"));
   }
 
+  // 1 decisecond (VTIME's unit) = 100 ms.
   timeout_ms_ = timeout_deciseconds * 100;
   is_open_ = true;
   buffer_.clear();
@@ -159,6 +185,11 @@ void SerialPort::write(const std::string & data)
 {
   std::size_t written = 0;
   while (written < data.size()) {
+    // Documented deviation (cppcoreguidelines-pro-bounds-pointer-arithmetic):
+    // `written < data.size()` in the loop condition guarantees this
+    // offset never exceeds the buffer, so the pointer
+    // arithmetic the ::write() syscall needs is already bounds-safe by
+    // construction.
     ssize_t n = ::write(fd_, data.data() + written, data.size() - written);
     if (n < 0) {
       throw SerialError(errnoMessage("write failed"));
@@ -187,7 +218,7 @@ std::optional<std::string> SerialPort::readLine()
     return std::nullopt;
   }
 
-  char chunk[256];
+  char chunk[kReadChunkSize];
   ssize_t n = ::read(fd_, chunk, sizeof(chunk));
   if (n < 0) {
     throw SerialError(errnoMessage("read failed"));
@@ -244,6 +275,8 @@ void SerialPort::setDtr(bool on)
   if (ioctl(fd_, TIOCMGET, &status) < 0) {
     throw SerialError(errnoMessage("TIOCMGET failed"));
   }
+  // Documented deviation (hicpp-signed-bitwise): TIOCM_DTR is a signed int
+  // constant from <sys/ioctl.h> (POSIX) -- see the note in open() above.
   if (on) {
     status |= TIOCM_DTR;
   } else {
@@ -260,6 +293,8 @@ void SerialPort::setRts(bool on)
   if (ioctl(fd_, TIOCMGET, &status) < 0) {
     throw SerialError(errnoMessage("TIOCMGET failed"));
   }
+  // Documented deviation (hicpp-signed-bitwise): TIOCM_RTS, same as
+  // TIOCM_DTR above.
   if (on) {
     status |= TIOCM_RTS;
   } else {

@@ -68,40 +68,58 @@ int parseInt(const std::string & field)
 
 PositionReport parseActivePositionReport(const std::string & line)
 {
+  // "POS,x,y,z,quality" -- 5 comma-separated fields.
+  constexpr std::size_t kFieldCount = 5;
+  constexpr std::size_t kTagField = 0;
+  constexpr std::size_t kXField = 1;
+  constexpr std::size_t kYField = 2;
+  constexpr std::size_t kZField = 3;
+  constexpr std::size_t kQualityField = 4;
+
   std::vector<std::string> report = splitCsv(line);
 
-  if (report.size() != 5) {
+  if (report.size() != kFieldCount) {
     throw ParsingError("Position report has unexpected length.");
   }
-  if (report[0] != "POS") {
+  if (report[kTagField] != "POS") {
     throw ParsingError("Position report has incorrect tag.");
   }
 
   PositionReport result;
-  result.x = parseDouble(report[1]);
-  result.y = parseDouble(report[2]);
-  result.z = parseDouble(report[3]);
-  result.quality = parseInt(report[4]);
+  result.x = parseDouble(report[kXField]);
+  result.y = parseDouble(report[kYField]);
+  result.z = parseDouble(report[kZField]);
+  result.quality = parseInt(report[kQualityField]);
   return result;
 }
 
 PassivePositionReport parsePassivePositionReport(const std::string & line)
 {
+  // "POS,uwb_addr,tag_short_id,x,y,z,quality,extra" -- 8 comma-separated
+  // fields (uwb_addr and the trailing extra field are unused here).
+  constexpr std::size_t kFieldCount = 8;
+  constexpr std::size_t kTagField = 0;
+  constexpr std::size_t kTagIdField = 2;
+  constexpr std::size_t kXField = 3;
+  constexpr std::size_t kYField = 4;
+  constexpr std::size_t kZField = 5;
+  constexpr std::size_t kQualityField = 6;
+
   std::vector<std::string> report = splitCsv(line);
 
-  if (report.size() != 8) {
+  if (report.size() != kFieldCount) {
     throw ParsingError("Position report has unexpected length.");
   }
-  if (report[0] != "POS") {
+  if (report[kTagField] != "POS") {
     throw ParsingError("Position report has incorrect tag.");
   }
 
   PassivePositionReport result;
-  result.tag_name = "DW" + report[2];
-  result.position.x = parseDouble(report[3]);
-  result.position.y = parseDouble(report[4]);
-  result.position.z = parseDouble(report[5]);
-  result.position.quality = parseInt(report[6]);
+  result.tag_name = "DW" + report[kTagIdField];
+  result.position.x = parseDouble(report[kXField]);
+  result.position.y = parseDouble(report[kYField]);
+  result.position.z = parseDouble(report[kZField]);
+  result.position.quality = parseInt(report[kQualityField]);
   return result;
 }
 

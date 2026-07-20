@@ -39,6 +39,9 @@ namespace
 {
 
 using dwm1001_driver_cpp::Dwm1001Shell;
+using dwm1001_driver_cpp::kDefaultBaudRate;
+using dwm1001_driver_cpp::kMaxSamples;
+using dwm1001_driver_cpp::kReaderRetryDelay;
 using dwm1001_driver_cpp::makeDescriptor;
 using dwm1001_driver_cpp::ParsingError;
 using dwm1001_driver_cpp::parseActivePositionReport;
@@ -67,9 +70,10 @@ public:
     declareParameters();
 
     int samples_param = static_cast<int>(get_parameter("samples").as_int());
-    if (samples_param > 10) {
-      RCLCPP_WARN(get_logger(), "Number of samples exceeds maximum value. Capping at 10.");
-      samples_param = 10;
+    if (samples_param > kMaxSamples) {
+      RCLCPP_WARN(
+        get_logger(), "Number of samples exceeds maximum value. Capping at %d.", kMaxSamples);
+      samples_param = kMaxSamples;
     } else if (samples_param < 1) {
       // active_tag_node.py has no lower-bound check at all: with
       // deque(maxlen=0), len(buffer)==maxlen is trivially true on every
@@ -136,10 +140,10 @@ private:
 
     serial_ = std::make_shared<SerialPort>();
     try {
-      // Hardcoded 115200 baud, 0.2s timeout -- baudrate isn't a parameter
+      // Hardcoded baud rate, 0.2s timeout -- baudrate isn't a parameter
       // in the Python driver for this node (unlike les_mode_tag/
       // ranging_tag).
-      serial_->open(serial_port_, 115200, 2);
+      serial_->open(serial_port_, kDefaultBaudRate, 2);
     } catch (const SerialError & e) {
       RCLCPP_FATAL(
         get_logger(), "Could not open serial port '%s': %s. Shutting down.",
@@ -184,13 +188,13 @@ private:
         // Not in the Python original (which has no timeout/thread at
         // all here) -- avoids a busy-loop on a persistently disconnected
         // device, same reasoning as ranging_tag_node.cpp.
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
       } catch (const std::exception & e) {
         // Defensive catch-all: nothing here should throw other than
         // SerialError, but letting anything else escape this detached
         // thread would call std::terminate() and kill the whole node.
         logReadErrorOnce(std::string("Unexpected serial read error: ") + e.what());
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::this_thread::sleep_for(kReaderRetryDelay);
       }
     }
   }
@@ -263,7 +267,10 @@ private:
 
   // ----------------- Serial / reader thread -----------------
   std::shared_ptr<SerialPort> serial_;
-  dwm1001_driver_cpp::BoundedQueue<std::string> line_queue_{10};
+  // Small on purpose: the device reports one "POS,..." line at a time
+  // (~1/s), unlike the les/lep line streams' anchor-per-line bursts.
+  static constexpr std::size_t kLineQueueCapacity = 10;
+  dwm1001_driver_cpp::BoundedQueue<std::string> line_queue_{kLineQueueCapacity};
   std::atomic<bool> running_{false};
   std::thread reader_thread_;
   RateLimiter read_error_rate_limiter_{2.0};

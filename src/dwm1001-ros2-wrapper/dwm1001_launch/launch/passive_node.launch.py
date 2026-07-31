@@ -12,17 +12,41 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _dwm1001_serial as dwm1001_serial  # noqa: E402
+
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, TextSubstitution, PathJoinSubstitution, EnvironmentVariable
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
-from ament_index_python.packages import get_package_share_directory
+
+
+def _make_node(context, *args, **kwargs):
+    dwm_config_path = LaunchConfiguration('dwm_config').perform(context)
+
+    requested = dwm1001_serial.read_serial_port_from_yaml(dwm_config_path)
+    serial_port, warning = dwm1001_serial.resolve_requested_or_auto(requested)
+
+    actions = []
+    if warning:
+        actions.append(LogInfo(msg=f"[passive_node.launch] {warning}"))
+
+    # All other parameters (ignore_tags, num_samples, ...) come from
+    # dwm_config as-is; this override only ever touches serial_port.
+    actions.append(Node(
+        package="dwm1001_driver",
+        executable="passive_tag",
+        parameters=[dwm_config_path, {"serial_port": serial_port}],
+    ))
+    return actions
 
 
 def generate_launch_description() -> LaunchDescription:
-    
-    config_file_val = LaunchConfiguration('dwm_config')
+
     default_config_file_path = PathJoinSubstitution([FindPackageShare('dwm1001_launch'),
                                                      'config',
                                                      'default_passive.yaml'])
@@ -32,12 +56,7 @@ def generate_launch_description() -> LaunchDescription:
         description='Configuration file for the passive node'
     )
 
-    dwm1001_driver = Node(
-        package="dwm1001_driver",
-        executable="passive_tag",
-        parameters=[PathJoinSubstitution([FindPackageShare('dwm1001_launch'), 'config', config_file_val])],
-    )
-
-    return LaunchDescription(
-        [config_file_launch_arg, dwm1001_driver]
-    )
+    return LaunchDescription([
+        config_file_launch_arg,
+        OpaqueFunction(function=_make_node),
+    ])

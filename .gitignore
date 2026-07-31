@@ -6,3 +6,8 @@ __pycache__/
 build/
 install/
 log/
+
+# xspublic is built in-place (ExternalProject_Add with SOURCE_DIR == source tree)
+src/xsens_mti_ros2_driver/lib/xspublic/**/*.o
+src/xsens_mti_ros2_driver/lib/xspublic/**/*.a
+src/xsens_mti_ros2_driver/lib/xspublic/**/*.d

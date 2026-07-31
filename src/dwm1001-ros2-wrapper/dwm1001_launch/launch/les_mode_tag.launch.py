@@ -3,11 +3,45 @@
 
 from __future__ import annotations
 
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _dwm1001_serial as dwm1001_serial  # noqa: E402
+
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
+
+
+def _make_node(context, *args, **kwargs):
+    requested = LaunchConfiguration("serial_port").perform(context)
+    serial_port, warning = dwm1001_serial.resolve_requested_or_auto(requested)
+
+    actions = []
+    if warning:
+        actions.append(LogInfo(msg=f"[les_mode_tag.launch] {warning}"))
+
+    actions.append(Node(
+        package="dwm1001_driver",
+        executable="les_mode_tag",
+        name="dwm1001_les_mode",
+        output="screen",
+        parameters=[{
+            "serial_port": serial_port,
+            "baudrate": LaunchConfiguration("baudrate"),
+            "frame_id": LaunchConfiguration("frame_id"),
+            "send_les_on_start": LaunchConfiguration("send_les_on_start"),
+            "reconnect_enabled": LaunchConfiguration("reconnect_enabled"),
+            "reconnect_initial_delay_s": LaunchConfiguration("reconnect_initial_delay_s"),
+            "reconnect_max_delay_s": LaunchConfiguration("reconnect_max_delay_s"),
+            "reconnect_backoff": LaunchConfiguration("reconnect_backoff"),
+            "reconnect_timer_period_s": LaunchConfiguration("reconnect_timer_period_s"),
+        }],
+    ))
+    return actions
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -26,13 +60,21 @@ def generate_launch_description() -> LaunchDescription:
         reconnect_max_delay_s:=10.0 \
         reconnect_backoff:=1.6 \
         reconnect_timer_period_s:=0.2
+
+    Serial port resolution (udev symlink -> by-id -> raw fallback) is shared
+    with other dwm1001_launch launch files via _dwm1001_serial.py.
     """
 
     # --- Launch arguments ---
     serial_port_arg = DeclareLaunchArgument(
         "serial_port",
-        default_value="/dev/serial/by-id/usb-SEGGER_J-Link_000760176108-if00",
-        description="Stable serial device path (prefer /dev/serial/by-id/...).",
+        default_value=dwm1001_serial.AUTO,
+        description=(
+            "Serial device path, or 'auto' (default) to resolve it automatically: prefers "
+            f"{dwm1001_serial.UDEV_SYMLINK} (udev rule in "
+            "mivia_rover_sensing/udev/98-dwm1001-uwb.rules), falls back to "
+            f"{dwm1001_serial.BY_ID_GLOB}, then to {dwm1001_serial.RAW_FALLBACK} as a last resort."
+        ),
     )
     baudrate_arg = DeclareLaunchArgument(
         "baudrate",
@@ -76,25 +118,6 @@ def generate_launch_description() -> LaunchDescription:
         description="Reconnect watchdog timer period (seconds).",
     )
 
-    # --- Node ---
-    node = Node(
-        package="dwm1001_driver",
-        executable="les_mode_tag",  
-        name="dwm1001_les_mode",
-        output="screen",
-        parameters=[{
-            "serial_port": LaunchConfiguration("serial_port"),
-            "baudrate": LaunchConfiguration("baudrate"),
-            "frame_id": LaunchConfiguration("frame_id"),
-            "send_les_on_start": LaunchConfiguration("send_les_on_start"),
-            "reconnect_enabled": LaunchConfiguration("reconnect_enabled"),
-            "reconnect_initial_delay_s": LaunchConfiguration("reconnect_initial_delay_s"),
-            "reconnect_max_delay_s": LaunchConfiguration("reconnect_max_delay_s"),
-            "reconnect_backoff": LaunchConfiguration("reconnect_backoff"),
-            "reconnect_timer_period_s": LaunchConfiguration("reconnect_timer_period_s"),
-        }],
-    )
-
     return LaunchDescription([
         serial_port_arg,
         baudrate_arg,
@@ -105,5 +128,5 @@ def generate_launch_description() -> LaunchDescription:
         reconnect_max_delay_s_arg,
         reconnect_backoff_arg,
         reconnect_timer_period_s_arg,
-        node,
+        OpaqueFunction(function=_make_node),
     ])

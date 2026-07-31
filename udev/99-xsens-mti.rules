@@ -1,0 +1,9 @@
+# Stable device symlink for the Xsens MTi IMU/GNSS (Motion Tracker Development Board).
+#
+# Without this rule the sensor shows up as /dev/ttyUSB<N>, where N depends on USB
+# enumeration order at boot/plug-in time. Since the rover also has a DWM1001 UWB tag
+# on a generic USB-serial adapter, the two can swap ttyUSB numbers across reboots.
+#
+# This rule matches on the Xsens USB vendor/product ID (stable across units of the
+# same model) and creates /dev/xsens_imu, independent of enumeration order.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="2639", ATTRS{idProduct}=="0300", SYMLINK+="xsens_imu", MODE="0660", GROUP="dialout"

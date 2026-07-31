@@ -1,0 +1,17 @@
+# Stable device symlink for the DWM1001 UWB tag, via its on-board SEGGER J-Link
+# USB-serial bridge (SEGGER J-Link, vendor:product 1366:0105).
+#
+# Same rationale as 99-xsens-mti.rules: the raw /dev/ttyACM<N> assignment depends
+# on USB enumeration order.
+#
+# Caveat (unlike the Xsens rule): 1366:0105 is SEGGER's *generic* J-Link debug-probe
+# ID, not specific to the DWM1001 board - any J-Link connected to the same host
+# (e.g. one used for firmware debugging on unrelated hardware) would also match
+# and claim this symlink. On the deployed rover this is not expected to be an
+# issue (only the DWM1001's on-board J-Link is normally connected), but on a dev
+# workstation with other J-Link probes around, disambiguate by uncommenting the
+# ATTRS{serial} match below with the specific unit's serial number (read it via
+# `udevadm info -q property -n /dev/ttyACM0 | grep ID_SERIAL_SHORT` while only
+# that unit is connected).
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1366", ATTRS{idProduct}=="0105", SYMLINK+="dwm1001_uwb", MODE="0660", GROUP="dialout"
+# SUBSYSTEM=="tty", ATTRS{idVendor}=="1366", ATTRS{idProduct}=="0105", ATTRS{serial}=="<unit serial>", SYMLINK+="dwm1001_uwb", MODE="0660", GROUP="dialout"

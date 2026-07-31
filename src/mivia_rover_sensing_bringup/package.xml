@@ -13,6 +13,8 @@
   <test_depend>python3-pytest</test_depend>
 
   <exec_depend>imu_tools</exec_depend>
+  <exec_depend>xsens_mti_ros2_driver</exec_depend>
+  <exec_depend>ntrip</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>

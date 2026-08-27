@@ -245,13 +245,24 @@
         # Sensor Standard Deviation (Optional)
         # ------------------------------------
         # Override the covariance matrix in sensor_msgs/Imu and sensor_msgs/MagneticField messages:
-        linear_acceleration_stddev: [0.0, 0.0, 0.0] # [m/s^2] Standard deviation for linear acceleration
-        angular_velocity_stddev: [0.0, 0.0, 0.0]   # [rad/s] Standard deviation for angular velocity
-        magnetic_field_stddev: [0.0, 0.0, 0.0]     # [Tesla] Standard deviation for magnetic field
-        # [rad]   Standard deviation for orientation,  
+        #
+        # Derived from the official MTi-8 datasheet (Movella, May 2023 -
+        # https://www.xsens.com/hubfs/Downloads/Leaflets/MTi-8.pdf), converting
+        # noise density -> per-sample stddev using stddev = noise_density * sqrt(output_data_rate),
+        # with output_data_rate = 100 Hz (see above). See
+        # mail_covarianze_xsens_mti8.md on the desktop for the full derivation.
+        #
+        # Caveat: orientation_stddev's 0.5/0.5/1.0 deg figures are the
+        # datasheet's "sensor fusion performance" WITH GNSS active. Indoors
+        # without GNSS (UWB-only), heading accuracy (magnetometer-derived)
+        # is expected to be worse than this nominal value.
+        linear_acceleration_stddev: [0.006865, 0.006865, 0.006865] # [m/s^2] Standard deviation for linear acceleration
+        angular_velocity_stddev: [0.000524, 0.000524, 0.000524]   # [rad/s] Standard deviation for angular velocity
+        magnetic_field_stddev: [0.00000005, 0.00000005, 0.00000005]     # [Tesla] Standard deviation for magnetic field
+        # [rad]   Standard deviation for orientation (roll, pitch, yaw),
         # for Sirius/Avior, if the pub_euler_stddev is true, will use that value from the sensor and igore this value.
-        orientation_stddev: [0.0, 0.0, 0.0]        
-        
+        orientation_stddev: [0.008727, 0.008727, 0.017453]
+
 
 
 

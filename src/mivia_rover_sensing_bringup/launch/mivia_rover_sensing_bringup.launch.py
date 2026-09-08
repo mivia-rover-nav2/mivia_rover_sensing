@@ -11,6 +11,7 @@ def generate_launch_description():
 
     enable_xsens = LaunchConfiguration("enable_xsens")
     enable_ntrip = LaunchConfiguration("enable_ntrip")
+    enable_velodyne = LaunchConfiguration("enable_velodyne")
 
     declare_args = [
         DeclareLaunchArgument(
@@ -22,6 +23,11 @@ def generate_launch_description():
             "enable_ntrip",
             default_value=TextSubstitution(text="true"),
             description="Enable the NTRIP client (RTK corrections for the Xsens GNSS receiver).",
+        ),
+        DeclareLaunchArgument(
+            "enable_velodyne",
+            default_value=TextSubstitution(text="true"),
+            description="Enable the Velodyne VLP-16 LiDAR driver.",
         ),
     ]
 
@@ -76,11 +82,47 @@ def generate_launch_description():
         condition=IfCondition(enable_ntrip),
     )
 
+    # --- Velodyne VLP-16 --------------------------------------------------
+    # The stock velodyne launch files are not parameterizable, so the two
+    # nodes are started here directly against our own override params
+    # (config/velodyne_vlp16.yaml). The calibration file is resolved to the
+    # VLP16db.yaml installed by velodyne_pointcloud.
+    velodyne_params_file = os.path.join(
+        get_package_share_directory('mivia_rover_sensing_bringup'),
+        'config',
+        'velodyne_vlp16.yaml'
+    )
+    velodyne_calibration_file = os.path.join(
+        get_package_share_directory('velodyne_pointcloud'),
+        'params',
+        'VLP16db.yaml'
+    )
+
+    velodyne_driver_node = Node(
+        package='velodyne_driver',
+        executable='velodyne_driver_node',
+        name='velodyne_driver_node',
+        output='both',
+        parameters=[velodyne_params_file],
+        condition=IfCondition(enable_velodyne),
+    )
+
+    velodyne_transform_node = Node(
+        package='velodyne_pointcloud',
+        executable='velodyne_transform_node',
+        name='velodyne_transform_node',
+        output='both',
+        parameters=[velodyne_params_file, {'calibration': velodyne_calibration_file}],
+        condition=IfCondition(enable_velodyne),
+    )
+
     return LaunchDescription(
         declare_args + [
             zed_wrapper,
             dwm1001_wrapper,
             xsens_driver,
             ntrip_client,
+            velodyne_driver_node,
+            velodyne_transform_node,
         ]
     )

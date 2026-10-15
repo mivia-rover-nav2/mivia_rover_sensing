@@ -104,7 +104,11 @@
         # GNSS Lever Arm (meters): [X, Y, Z]
         # Applicable to: MTi-8/680(G)
         # Default: [0.0, 0.0, 0.0] for unchanged antenna position.
-        GNSS_LeverArm: [0.0, 0.0, 0.0] 
+        # Mivia Rover: ANT-GNSS-RTK (44 x 18 mm) in the holder on the sensor box
+        # lid, rear-left of the Velodyne (Rover_Case.step). Vector from the MTi
+        # module to the antenna phase center (assumed mid-dome, 9 mm above the
+        # base), in the sensor frame: +X = rover right, +Y = rover forward, +Z up.
+        GNSS_LeverArm: [-0.058, -0.165, 0.130]
 
         # u-blox GNSS Platform Settings
         # -----------------------------

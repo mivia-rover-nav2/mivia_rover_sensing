@@ -16,16 +16,30 @@ from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 
+# Both implementations expose the same executable name, parameters and topics,
+# so they are interchangeable. The C++ one is the default: same output as the
+# Python one on the rover, at ~1/5 of the CPU (4.5% vs 21% on the Jetson).
+_IMPLEMENTATIONS = {
+    "cpp": "dwm1001_driver_cpp",
+    "python": "dwm1001_driver",
+}
+
+
 def _make_node(context, *args, **kwargs):
     requested = LaunchConfiguration("serial_port").perform(context)
     serial_port, warning = dwm1001_serial.resolve_requested_or_auto(requested)
+
+    implementation = LaunchConfiguration("implementation").perform(context)
+    if implementation not in _IMPLEMENTATIONS:
+        raise ValueError(
+            f"implementation must be one of {sorted(_IMPLEMENTATIONS)}, got '{implementation}'")
 
     actions = []
     if warning:
         actions.append(LogInfo(msg=f"[les_mode_tag.launch] {warning}"))
 
     actions.append(Node(
-        package="dwm1001_driver",
+        package=_IMPLEMENTATIONS[implementation],
         executable="les_mode_tag",
         name="dwm1001_les_mode",
         output="screen",
@@ -59,13 +73,20 @@ def generate_launch_description() -> LaunchDescription:
         reconnect_initial_delay_s:=0.5 \
         reconnect_max_delay_s:=10.0 \
         reconnect_backoff:=1.6 \
-        reconnect_timer_period_s:=0.2
+        reconnect_timer_period_s:=0.2 \
+        implementation:=python   # fall back to the Python driver (default: cpp)
 
     Serial port resolution (udev symlink -> by-id -> raw fallback) is shared
     with other dwm1001_launch launch files via _dwm1001_serial.py.
     """
 
     # --- Launch arguments ---
+    implementation_arg = DeclareLaunchArgument(
+        "implementation",
+        default_value="cpp",
+        choices=sorted(_IMPLEMENTATIONS),
+        description="Driver implementation: 'cpp' (dwm1001_driver_cpp, default) or 'python' (dwm1001_driver).",
+    )
     serial_port_arg = DeclareLaunchArgument(
         "serial_port",
         default_value=dwm1001_serial.AUTO,
@@ -119,6 +140,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     return LaunchDescription([
+        implementation_arg,
         serial_port_arg,
         baudrate_arg,
         frame_id_arg,

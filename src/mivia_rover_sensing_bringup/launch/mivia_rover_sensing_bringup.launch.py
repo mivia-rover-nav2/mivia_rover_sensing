@@ -7,23 +7,6 @@ import os
 
 def generate_launch_description():
 
-    zed_launch_file_path = os.path.join(
-        get_package_share_directory('zed_wrapper'),
-        'launch',
-        'zed2_camera.launch.py'
-    )
-    zed_wrapper = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(zed_launch_file_path),
-        launch_arguments={
-            'publish_tf': 'false',
-            'publish_map_tf': 'false',
-            'publish_cam_imu_transf':'true',
-            'publish_imu_raw':'true',
-            'publish_imu_tf':'true',
-            'publish_mag':'true'
-        }.items()
-        )
-    
     dwm1001_launch_file_path = os.path.join(
         get_package_share_directory('dwm1001_launch'),
         'launch',
@@ -37,6 +20,5 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        zed_wrapper,
         dwm1001_wrapper
     ])
